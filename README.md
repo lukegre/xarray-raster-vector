@@ -4,7 +4,9 @@ Uses xarray, geopandas and scikit-image as the main building blocks.
 
 ## Installation
 
-`pip install git+https://github.com/lukegre/xarray-raster-vector.git`
+```bash
+pip install git+https://github.com/lukegre/xarray-raster-vector.git
+```
 
 ## Usage
 
