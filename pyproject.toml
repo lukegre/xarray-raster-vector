@@ -1,0 +1,25 @@
+[project]
+name = "xarray-raster-vector"
+version = "0.1.0"
+description = "a lightweight set of tools for converting raster to vector and vice-versa. Uses xarray, geopandas and scikit-image as the main building blocks."
+authors = [
+    { name = "Luke Gregor", email = "lukegre@gmail.com" }
+]
+license = { text = "CC0-1.0" }
+
+dependencies = [
+    "joblib",
+    "loguru",
+    "numpy",
+    "xarray",
+    "fiona", 
+    "pandas",
+    "geopandas",
+    "rasterio",
+    "rioxarray",
+    "scikit-image",
+]
+
+[build-system]
+requires = ["setuptools>=42", "wheel"]
+build-backend = "setuptools.build_meta"
