@@ -159,10 +159,10 @@ class RasterVector:
 
         da = (
             da
-            .morph.remove_small_holes(area_threshold=holes)
-            .morph.remove_small_objects(min_size=objects)
-            .morph.binary_opening()
-            .morph.binary_closing())
+            .skimg.remove_small_holes(area_threshold=holes)
+            .skimg.remove_small_objects(min_size=objects)
+            .skimg.binary_opening()
+            .skimg.binary_closing())
         return da
 
 
