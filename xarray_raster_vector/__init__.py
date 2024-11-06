@@ -15,9 +15,13 @@ from . import accessors
 
 from loguru import logger
 
-accessors = (
-    accessors.get_accessor_funcs(accessors.VectorRaster, 'df.rv') + ["=" * 23] +
-    accessors.get_accessor_funcs(accessors.RasterVector, 'da.rv') + ["=" * 23] +
-    accessors.get_accessor_funcs(accessors.ScikitImage, 'da.skimg'))
 
-logger.debug("\nThe following accessors have been added:\n  " + '\n  '.join(accessors))
+def info():
+    from . import accessors
+
+    accessors = (
+        accessors.get_accessor_funcs(accessors.VectorRaster, 'df.rv') + ["=" * 23] +
+        accessors.get_accessor_funcs(accessors.RasterVector, 'da.rv') + ["=" * 23] +
+        accessors.get_accessor_funcs(accessors.ScikitImage, 'da.skimg'))
+
+    logger.info("\nThe following accessors have been added:\n  " + '\n  '.join(accessors))
