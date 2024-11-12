@@ -259,24 +259,24 @@ class ScikitImage:
         return result
 
     def __repr__(self):
-
         out = [""]
         for name in self._func_names:
             func = getattr(morphology, name)
-            sig = get_func_signature_without_1st_arg(func)
+            sig = get_func_signature(func)
             out += f"da.morph.{name}{sig}",
         
         for name in ["label"]:
             func = getattr(measure, name)
-            sig = get_func_signature_without_1st_arg(func)
+            sig = get_func_signature(func)
             out += f"da.morph.{name}{sig}",
 
-        out += "da.morph.clean ( holes=64, objects=64, opening=None, closing=None ) ",
+        sig = get_func_signature(self.clean, drop_first=False)
+        out += f"da.morph.clean{sig} ",
 
         text = "<xr.morph accessor>" + ("\n" + " " * 4).join(out)
         return text
 
-    def clean(self, min_hole_size=64, min_object_size=64, opening=None, closing=None):
+    def clean(self, min_hole_size=64, min_object_size=64, opening_footprint=None, closing_footprint=None):
         """
         Cleans the mask by removing small objects and holes.
 
@@ -286,6 +286,10 @@ class ScikitImage:
             The minimum area of holes to remove.
         min_object_size : int, optional [64]
             The minimum area of objects to remove.
+        opening_footprint : np.ndarray, optional [None]
+            The footprint for the binary opening operation.
+        closing_footprint : np.ndarray, optional [None]
+            The footprint for the binary closing operation.
 
         Returns
         -------
@@ -300,8 +304,8 @@ class ScikitImage:
             da
             .morph.remove_small_objects(min_size=min_object_size)
             .morph.remove_small_holes(area_threshold=min_hole_size)
-            .morph.binary_opening()
-            .morph.binary_closing())
+            .morph.binary_opening(footprint=opening_footprint)
+            .morph.binary_closing(footprint=closing_footprint))
         return da
 
     @wraps(measure.label)
@@ -324,12 +328,16 @@ class ScikitImage:
         return out
 
 
-def get_func_signature_without_1st_arg(func):
+def get_func_signature(func, drop_first=True):
     from inspect import signature
 
     sig = signature(func)
     # remove the first argument
-    sig = " (" + str(sig)[str(sig).index(",") + 1:-1] + " )"
+    if drop_first:
+        sig = " (" + str(sig)[str(sig).index(",") + 1:-1] + " )"
+    else:
+        sig = " ( " + str(sig)[1:-1] + " )"
+
     return sig
 
 
