@@ -17,11 +17,15 @@ from loguru import logger
 
 
 def info():
-    from . import accessors
+    import xarray as xr
+    import numpy as np
 
-    accessors = (
-        accessors.get_accessor_funcs(accessors.VectorRaster, 'df.rv') + ["=" * 23] +
-        accessors.get_accessor_funcs(accessors.RasterVector, 'da.rv') + ["=" * 23] +
-        accessors.get_accessor_funcs(accessors.ScikitImage, 'da.skimg'))
+    da = xr.DataArray(np.ones([1, 1]), dims=['x', 'y'], coords={'x': [0], 'y': [0]}, name='dummy').rio.write_crs(4326)
+    df = da.to_dataframe()
 
-    logger.info("\nThe following accessors have been added:\n  " + '\n  '.join(accessors))
+    accessors_help = ""
+    accessors_help += str(df.rv) + "\n"
+    accessors_help += str(da.rv) + "\n"
+    accessors_help += str(da.morph)
+
+    print("The following accessors have been added:\n\n" + accessors_help)

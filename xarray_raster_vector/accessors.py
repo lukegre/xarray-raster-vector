@@ -1,10 +1,10 @@
-from xarray import register_dataarray_accessor
+from xarray import register_dataarray_accessor, apply_ufunc
 # import pandas equivalent to register accessor for pandas
 from pandas.api.extensions import register_dataframe_accessor
 
 from loguru import logger
 from functools import wraps
-from skimage import morphology, measure
+from skimage import morphology, measure, exposure
 
 from .utils import enable_xarray_wrapper
 from .conversion import (
@@ -14,13 +14,105 @@ from .conversion import (
     polygons_to_raster_int)
 
 
+@register_dataframe_accessor("rv")
+class VectorRaster:
+    def __init__(self, df):
+        self._df = df
+
+    def __repr__(self):
+        out = "<df.rv accessor>\n"
+        out += "    df.rv.to_raster ( da_target, by_column=None, **joblib_kwargs )\n"
+        out += "    df.rv.crop_to_da ( da )\n"
+        out += "    df.rv.get_bbox_latlon ( as_geopandas=False )\n"
+
+        return out
+
+    def _check_df(self):
+        import geopandas as gpd
+
+        df = self._df
+
+        assert isinstance(df, gpd.GeoDataFrame), "Must be a GeoDataFrame"
+        assert "geometry" in df.columns, "GeoDataFrame must have a 'geometry' column"
+
+    @wraps(polygons_to_raster_int)
+    def to_raster(self, da_target, **kwargs):
+        """
+        Convert the GeoDataFrame to a raster mask.
+
+        Parameters
+        ----------
+        da_target : xr.DataArray
+            The target grid to match the mask to. It is assumed that the 
+            spatial dimensions [y, x] are in positions [-2, -1]. 
+        by_column : str, optional
+            The column in the GeoDataFrame to group the polygons by. If None, then each
+            row is converted to a separate integer value. The default is None.
+        kwargs : dict, optional
+            Additional keyword arguments to pass to joblib.Parallel. The default is {}.
+
+        Returns
+        -------
+        xr.DataArray
+            A DataArray with the raster mask with integer values.
+        """
+        from .raster import prep_raster
+        import xarray as xr
+        
+        df = self._df
+        self._check_df()
+
+        assert isinstance(da_target, xr.DataArray), "Must be a DataArray"
+        
+        geom = df.geometry
+        da = prep_raster(da_target)
+
+        if len(geom) == 1:
+            mask = polygon_to_raster_bool(geom.iloc[0], da)
+        elif len(geom) < 20:
+            mask = polygons_to_raster_int(df, da, **kwargs)
+        elif len(geom) >= 20:
+            raise ValueError("Too many polygons to convert to raster.")
+        elif len(geom) == 0:
+            raise ValueError("No polygons to convert to raster.")
+        
+        return mask
+    
+    def crop_to_da(self, da):
+        from .vector import clip_geodata_to_grid
+        from .raster import prep_raster
+
+        df = self._df
+        da = prep_raster(da)
+
+        return clip_geodata_to_grid(df, da)
+    
+    def get_bbox_latlon(self, as_geopandas=False):
+        bbox = tuple(self._df.to_crs("EPSG:4326").total_bounds.tolist())
+
+        if as_geopandas:
+            from .vector import bbox_to_geopandas
+            bbox = bbox_to_geopandas(bbox, crs="EPSG:4326")
+        
+        return bbox
+
+
 @register_dataarray_accessor("rv")
 class RasterVector:
     def __init__(self, da) -> None:
         from .raster import prep_raster
         self._da = prep_raster(da)
+    
+    def __repr__(self):
+        out = "<xr.rv accessor>\n"
+        out += "    da.rv.to_polygons ( buffer_dist=0, simplify_dist=0, combine_polygons=False, names=None )\n"
+        out += "    da.rv.to_raster ( filname, **kwargs )\n"
+        out += "    da.rv.get_bbox_latlon ( as_geopandas=False )\n"
+        out += "    da.rv.get_utm_code ()\n"
 
-    def to_vector(self, **kwargs):
+        return out
+    
+    def to_polygons(self, **kwargs):
         """
         Converts a rasterized mask to a vectorized representation.
 
@@ -59,7 +151,7 @@ class RasterVector:
         
         return df
     
-    def to_geotiff(self, filname:str, **kwargs):
+    def to_raster(self, filname:str, **kwargs):
         """
         Saves the DataArray as a geotiff file.
 
@@ -137,15 +229,62 @@ class RasterVector:
 
         return epsg
 
-    def clean_mask(self, holes=64, objects=64, opening=None, closing=None):
+
+@register_dataarray_accessor("morph")
+class ScikitImage:
+    _func_names = (
+            "binary_opening",
+            "binary_closing",
+            "binary_erosion",
+            "binary_dilation",
+            "remove_small_holes",
+            "remove_small_objects")
+
+    def __init__(self, da):
+        from functools import partial, wraps
+
+        self._da = da
+        
+        for name in self._func_names:
+            func = getattr(morphology, name)
+            setattr(self, name, wraps(func)(partial(self._caller, name))) 
+
+    def _caller(self, func_name, **kwargs):
+        da = self._da
+        func = getattr(morphology, func_name)
+        
+        assert da.dtype == bool, "DataArray must be boolean type."
+
+        result = apply_ufunc(func, da, kwargs=kwargs)
+        return result
+
+    def __repr__(self):
+
+        out = [""]
+        for name in self._func_names:
+            func = getattr(morphology, name)
+            sig = get_func_signature_without_1st_arg(func)
+            out += f"da.morph.{name}{sig}",
+        
+        for name in ["label"]:
+            func = getattr(measure, name)
+            sig = get_func_signature_without_1st_arg(func)
+            out += f"da.morph.{name}{sig}",
+
+        out += "da.morph.clean ( holes=64, objects=64, opening=None, closing=None ) ",
+
+        text = "<xr.morph accessor>" + ("\n" + " " * 4).join(out)
+        return text
+
+    def clean(self, min_hole_size=64, min_object_size=64, opening=None, closing=None):
         """
         Cleans the mask by removing small objects and holes.
 
         Parameters
         ----------
-        holes : int, optional [64]
+        min_hole_size : int, optional [64]
             The minimum area of holes to remove.
-        objects : int, optional [64]
+        min_object_size : int, optional [64]
             The minimum area of objects to remove.
 
         Returns
@@ -159,56 +298,11 @@ class RasterVector:
 
         da = (
             da
-            .skimg.remove_small_holes(area_threshold=holes)
-            .skimg.remove_small_objects(min_size=objects)
-            .skimg.binary_opening()
-            .skimg.binary_closing())
+            .morph.remove_small_objects(min_size=min_object_size)
+            .morph.remove_small_holes(area_threshold=min_hole_size)
+            .morph.binary_opening()
+            .morph.binary_closing())
         return da
-
-
-@register_dataarray_accessor("skimg")
-class ScikitImage:
-    """
-    Accessor for skimage.morphology operations:
-    - binary_opening
-    - binary_closing
-    - binary_erosion
-    - binary_dilation
-    - remove_small_holes
-    - remove_small_objects
-    """
-    def __init__(self, da):
-        self._da = da
-
-    @wraps(morphology.binary_opening)
-    def binary_opening(self, **kwargs):
-        func = enable_xarray_wrapper(morphology.binary_opening)
-        return func(self._da, **kwargs)
-    
-    @wraps(morphology.binary_closing)
-    def binary_closing(self, **kwargs):
-        func = enable_xarray_wrapper(morphology.binary_closing)
-        return func(self._da, **kwargs)
-    
-    @wraps(morphology.binary_erosion)
-    def binary_erosion(self, **kwargs):
-        func = enable_xarray_wrapper(morphology.binary_erosion)
-        return func(self._da, **kwargs)
-    
-    @wraps(morphology.binary_dilation)
-    def binary_dilation(self, **kwargs):
-        func = enable_xarray_wrapper(morphology.binary_dilation)
-        return func(self._da, **kwargs)
-    
-    @wraps(morphology.remove_small_holes)
-    def remove_small_holes(self, **kwargs):
-        func = enable_xarray_wrapper(morphology.remove_small_holes)
-        return func(self._da, **kwargs)
-    
-    @wraps(morphology.remove_small_objects)
-    def remove_small_objects(self, **kwargs):
-        func = enable_xarray_wrapper(morphology.remove_small_objects)
-        return func(self._da, **kwargs)
 
     @wraps(measure.label)
     def label(self, **kwargs):
@@ -230,71 +324,14 @@ class ScikitImage:
         return out
 
 
-@register_dataframe_accessor("rv")
-class VectorRaster:
-    def __init__(self, df):
-        self._df = df
+def get_func_signature_without_1st_arg(func):
+    from inspect import signature
 
-    def _check_df(self):
-        import geopandas as gpd
+    sig = signature(func)
+    # remove the first argument
+    sig = " (" + str(sig)[str(sig).index(",") + 1:-1] + " )"
+    return sig
 
-        df = self._df
-
-        assert isinstance(df, gpd.GeoDataFrame), "Must be a GeoDataFrame"
-        assert "geometry" in df.columns, "GeoDataFrame must have a 'geometry' column"
-
-    @wraps(polygons_to_raster_int)
-    def to_raster(self, da_target, **kwargs):
-        """
-        Convert the GeoDataFrame to a raster mask.
-
-        Parameters
-        ----------
-        da_target : xr.DataArray
-            The target grid to match the mask to. It is assumed that the 
-            spatial dimensions [y, x] are in positions [-2, -1]. 
-        by_column : str, optional
-            The column in the GeoDataFrame to group the polygons by. If None, then each
-            row is converted to a separate integer value. The default is None.
-        kwargs : dict, optional
-            Additional keyword arguments to pass to joblib.Parallel. The default is {}.
-
-        Returns
-        -------
-        xr.DataArray
-            A DataArray with the raster mask with integer values.
-        """
-        from .raster import prep_raster
-        import xarray as xr
-        
-        df = self._df
-        self._check_df()
-
-        assert isinstance(da_target, xr.DataArray), "Must be a DataArray"
-        
-        geom = df.geometry
-        da = prep_raster(da_target)
-
-        if len(geom) == 1:
-            mask = polygon_to_raster_bool(geom.iloc[0], da)
-        elif len(geom) < 20:
-            mask = polygons_to_raster_int(df, da, **kwargs)
-        elif len(geom) >= 20:
-            raise ValueError("Too many polygons to convert to raster.")
-        elif len(geom) == 0:
-            raise ValueError("No polygons to convert to raster.")
-        
-        return mask
-    
-    def crop_to_da(self, da):
-        from .vector import clip_geodata_to_grid
-        from .raster import prep_raster
-
-        df = self._df
-        da = prep_raster(da)
-
-        return clip_geodata_to_grid(df, da)
-    
 
 def get_accessor_funcs(class_object, accessor_name):
     """
