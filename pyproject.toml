@@ -1,11 +1,11 @@
 [project]
 name = "xarray-raster-vector"
-version = "0.1.0"
+version = "0.1.1"
 description = "a lightweight set of tools for converting raster to vector and vice-versa. Uses xarray, geopandas and scikit-image as the main building blocks."
 authors = [
     { name = "Luke Gregor", email = "lukegre@gmail.com" }
 ]
-license = { text = "CC0-1.0" }
+license = { text = "MIT" }
 
 dependencies = [
     "joblib",
