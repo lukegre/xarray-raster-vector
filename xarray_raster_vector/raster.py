@@ -64,7 +64,11 @@ def prep_raster(da:xr.DataArray, x_axis=-1, y_axis=-2):
     x_name_new = 'x'
     y_name_new = 'y'
 
-    da = da.rename({x_name_old: x_name_new, y_name_old: y_name_new})
+    if x_name_old != x_name_new:
+        da = da.rename({x_name_old: x_name_new})
+    if y_name_old != y_name_new:
+        da = da.rename({y_name_old: y_name_new})
+
     da = da.sortby(y_name_new, ascending=False)
 
     if da.rio.crs is None:
