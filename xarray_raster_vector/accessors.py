@@ -321,12 +321,18 @@ class ScikitImage:
 
     @wraps(measure.label)
     def label(self, **kwargs):
+        from xarray import concat
         da = self._da
+
+        if 'dim' in kwargs:
+            dim = kwargs.pop('dim')
+            out = [da.isel(**{dim:t}).morph.label(**kwargs) for t in range(da[dim].size)]
+            return concat(out, dim=dim)
 
         return_num = kwargs.pop('return_num', False)
         
-        func = enable_xarray_wrapper(measure.label, **kwargs)
-        out = func(da)
+        func = enable_xarray_wrapper(measure.label)
+        out = func(da, **kwargs)
         
         ser = out.to_series()
         counts = ser.value_counts()
