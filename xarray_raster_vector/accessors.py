@@ -250,12 +250,22 @@ class ScikitImage:
             setattr(self, name, wraps(func)(partial(self._caller, name))) 
 
     def _caller(self, func_name, **kwargs):
+        from xarray import concat
         da = self._da
         func = getattr(morphology, func_name)
         
         assert da.dtype == bool, "DataArray must be boolean type."
 
-        result = apply_ufunc(func, da, kwargs=kwargs)
+        if 'dim' not in kwargs:
+            result = apply_ufunc(func, da, kwargs=kwargs)
+        else:
+            dim = kwargs.pop('dim')
+            assert dim in da.dims, f"Dimension {dim} not found in DataArray."
+
+            result = concat([
+                apply_ufunc(func, da.isel(**{dim: i}), kwargs=kwargs)
+                for i in range(da[dim].size)], dim=dim)
+        
         return result
 
     def __repr__(self):
@@ -276,7 +286,7 @@ class ScikitImage:
         text = "<xr.morph accessor>" + ("\n" + " " * 4).join(out)
         return text
 
-    def clean(self, min_hole_size=64, min_object_size=64, opening_footprint=None, closing_footprint=None):
+    def clean(self, min_hole_size=64, min_object_size=64, opening_footprint=None, closing_footprint=None, dim=None):
         """
         Cleans the mask by removing small objects and holes.
 
@@ -300,12 +310,13 @@ class ScikitImage:
 
         assert da.dtype == bool, "DataArray must be boolean type."
 
+        kwargs = dict(dim=dim) if dim is not None else {}
         da = (
             da
-            .morph.remove_small_objects(min_size=min_object_size)
-            .morph.remove_small_holes(area_threshold=min_hole_size)
-            .morph.binary_opening(footprint=opening_footprint)
-            .morph.binary_closing(footprint=closing_footprint))
+            .morph.remove_small_objects(min_size=min_object_size, **kwargs)
+            .morph.remove_small_holes(area_threshold=min_hole_size, **kwargs)
+            .morph.binary_opening(footprint=opening_footprint, **kwargs)
+            .morph.binary_closing(footprint=closing_footprint, **kwargs))
         return da
 
     @wraps(measure.label)
