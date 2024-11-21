@@ -334,7 +334,7 @@ class ScikitImage:
 
         if return_num:
             out = out.to_dataset(name='labels')
-            out['counts'] = counts.to_xarray().rename(index='label')
+            out['counts'] = counts.to_xarray().rename({da.name: 'label'})
         
         return out
 
