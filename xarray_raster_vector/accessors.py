@@ -190,7 +190,7 @@ class RasterVector:
         bbox = get_bounds_latlon(da)
         
         if as_geopandas:
-            bbox = bbox_to_geopandas(bbox, crs=da.rio.crs)
+            bbox = bbox_to_geopandas(bbox, crs='EPSG:4326')
         
         return bbox
 
